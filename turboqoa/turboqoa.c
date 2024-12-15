@@ -162,7 +162,24 @@ static enum TurboQOADecoderError turboqoa_decoder_decode_file_header(struct Turb
     return TURBOQOA_DECODER_ERROR_NONE;
 }
 
-static const float dequant_tab[8] = {0.75, -0.75, 2.5, -2.5, 4.5, -4.5, 7, -7};
+static const int qoa_dequant_tab[16][8] = {
+	{   1,    -1,    3,    -3,    5,    -5,     7,     -7},
+	{   5,    -5,   18,   -18,   32,   -32,    49,    -49},
+	{  16,   -16,   53,   -53,   95,   -95,   147,   -147},
+	{  34,   -34,  113,  -113,  203,  -203,   315,   -315},
+	{  63,   -63,  210,  -210,  378,  -378,   588,   -588},
+	{ 104,  -104,  345,  -345,  621,  -621,   966,   -966},
+	{ 158,  -158,  528,  -528,  950,  -950,  1477,  -1477},
+	{ 228,  -228,  760,  -760, 1368, -1368,  2128,  -2128},
+	{ 316,  -316, 1053, -1053, 1895, -1895,  2947,  -2947},
+	{ 422,  -422, 1405, -1405, 2529, -2529,  3934,  -3934},
+	{ 548,  -548, 1828, -1828, 3290, -3290,  5117,  -5117},
+	{ 696,  -696, 2320, -2320, 4176, -4176,  6496,  -6496},
+	{ 868,  -868, 2893, -2893, 5207, -5207,  8099,  -8099},
+	{1064, -1064, 3548, -3548, 6386, -6386,  9933,  -9933},
+	{1286, -1286, 4288, -4288, 7718, -7718, 12005, -12005},
+	{1536, -1536, 5120, -5120, 9216, -9216, 14336, -14336},
+};
 
 enum TurboQOADecoderError turboqoa_decoder_decode_step(struct TurboQOADecoder *self, const uint8_t *data, size_t size, size_t* input_consumed, int16_t* output, size_t max_output_size, size_t* samples_written, enum TruboQOADecoderWants* wants)
 {
@@ -307,8 +324,7 @@ enum TurboQOADecoderError turboqoa_decoder_decode_step(struct TurboQOADecoder *s
 
                 for(int k = 0; k < QOA_SAMPLES_PER_SLICE /*20*/; k++) {
                     uint8_t quant = (slice >> (57 - k * 3)) & 0b111;
-                    float fr = dequant_tab[quant] * sf;
-                    int r = fr < 0 ? ceilf(fr - 0.5f) : floorf(fr + 0.5f);
+                    int r = qoa_dequant_tab[sf_quant][quant];
                     int32_t p = 0;
                     for(int l = 0; l < 4; l++) {
                         p += state->weights[l] * state->history[l];
@@ -502,27 +518,6 @@ static const int quant_tab[17] = {
 	0,                      /*  0     */
 	0, 2, 2, 4, 4, 6, 6, 6  /*  1.. 8 */
 };
-
-
-static const int qoa_dequant_tab[16][8] = {
-	{   1,    -1,    3,    -3,    5,    -5,     7,     -7},
-	{   5,    -5,   18,   -18,   32,   -32,    49,    -49},
-	{  16,   -16,   53,   -53,   95,   -95,   147,   -147},
-	{  34,   -34,  113,  -113,  203,  -203,   315,   -315},
-	{  63,   -63,  210,  -210,  378,  -378,   588,   -588},
-	{ 104,  -104,  345,  -345,  621,  -621,   966,   -966},
-	{ 158,  -158,  528,  -528,  950,  -950,  1477,  -1477},
-	{ 228,  -228,  760,  -760, 1368, -1368,  2128,  -2128},
-	{ 316,  -316, 1053, -1053, 1895, -1895,  2947,  -2947},
-	{ 422,  -422, 1405, -1405, 2529, -2529,  3934,  -3934},
-	{ 548,  -548, 1828, -1828, 3290, -3290,  5117,  -5117},
-	{ 696,  -696, 2320, -2320, 4176, -4176,  6496,  -6496},
-	{ 868,  -868, 2893, -2893, 5207, -5207,  8099,  -8099},
-	{1064, -1064, 3548, -3548, 6386, -6386,  9933,  -9933},
-	{1286, -1286, 4288, -4288, 7718, -7718, 12005, -12005},
-	{1536, -1536, 5120, -5120, 9216, -9216, 14336, -14336},
-};
-
 
 
 enum TurboQOAEncoderError turboqoa_encoder_encode_step(struct TurboQOAEncoder *self, const int16_t* data, size_t size, size_t* input_consumed, enum TurboQOAEncoderWants* wants)

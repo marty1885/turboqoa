@@ -11,4 +11,4 @@ From scrtch, realtime [Quite Ok Audio](https://qoaformat.org/) codec with stream
 
 ## TODO:
 
-- [ ] Flush content on close of encoding
+- [x] Flush content on close of encoding
