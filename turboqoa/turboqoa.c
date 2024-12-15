@@ -528,8 +528,8 @@ static const int qoa_dequant_tab[16][8] = {
 enum TurboQOAEncoderError turboqoa_encoder_encode_step(struct TurboQOAEncoder *self, const int16_t* data, size_t size, size_t* input_consumed, enum TurboQOAEncoderWants* wants)
 {
     const size_t samples_per_frame = QOA_SLICE_PER_CHANNEL_PER_FRAME * QOA_SAMPLES_PER_SLICE * self->num_channels;
-    const size_t remaiing_samples_per_channel = self->total_samples_per_channel == 0 ? (size_t)-1 : self->total_samples_per_channel - self->total_samples_written_per_channel;
-    const size_t encoding_samples = MIN(samples_per_frame, remaiing_samples_per_channel);
+    const size_t remaining_samples_per_channel = self->total_samples_per_channel == 0 ? (size_t)-1 : self->total_samples_per_channel - self->total_samples_written_per_channel;
+    const size_t encoding_samples = MIN(samples_per_frame, remaining_samples_per_channel * self->num_channels);
     uint8_t* ptr = turboqoa_work_buffer_push_or_passthrough(&self->work_buffer, encoding_samples * 2, (const uint8_t*)data, size * 2, input_consumed);
     *input_consumed /= 2;
     if(ptr == NULL) {
@@ -571,7 +571,7 @@ enum TurboQOAEncoderError turboqoa_encoder_encode_step(struct TurboQOAEncoder *s
             size_t best_rank = (size_t)-1;
 
             struct TurboQOALMSState best_lms;
-            const size_t encode_samples = MIN(QOA_SAMPLES_PER_SLICE, encoding_samples - sample_idx_in_channel * self->num_channels - channel);
+            const size_t slice_samples = MIN(QOA_SAMPLES_PER_SLICE, encoding_samples - sample_idx_in_channel * self->num_channels - channel);
             for(int sfi = 0; sfi < 16; sfi++) {
                 size_t sample_begin = sample_idx_in_channel * self->num_channels + channel;
                 int32_t scalefactor = (sfi + prevsf[channel]) % 16;
@@ -579,7 +579,7 @@ enum TurboQOAEncoderError turboqoa_encoder_encode_step(struct TurboQOAEncoder *s
                 struct TurboQOALMSState lms = self->lms_states[channel];
                 int64_t current_rank = 0;
                 uint64_t current_error = 0;
-                for(size_t sample_in_slice = 0; sample_in_slice < encode_samples; sample_in_slice++) {
+                for(size_t sample_in_slice = 0; sample_in_slice < slice_samples; sample_in_slice++) {
                     size_t idx = sample_begin + sample_in_slice * self->num_channels;
                     int32_t sample = input_samples[idx];
                     int32_t prediction = 0;
@@ -636,8 +636,8 @@ enum TurboQOAEncoderError turboqoa_encoder_encode_step(struct TurboQOAEncoder *s
             self->lms_states[channel] = best_lms;
             prevsf[channel] = best_sf;
             uint8_t slice_buf[8];
-            if(encode_samples != QOA_SAMPLES_PER_SLICE) {
-                best_slice <<= (QOA_SAMPLES_PER_SLICE - encode_samples) * 3;
+            if(slice_samples != QOA_SAMPLES_PER_SLICE) {
+                best_slice <<= (QOA_SAMPLES_PER_SLICE - slice_samples) * 3;
             }
             storeu64be(slice_buf, best_slice);
             turboqoa_encoder_write(self, slice_buf, 8);
@@ -645,7 +645,7 @@ enum TurboQOAEncoderError turboqoa_encoder_encode_step(struct TurboQOAEncoder *s
     }
     turboqoa_work_buffer_clear(&self->work_buffer);
 
-    self->total_samples_written_per_channel += samples_per_frame / self->num_channels;
+    self->total_samples_written_per_channel += encode_sample_per_channel;
     *wants = TURBOQOA_ENCODER_WANTS_CONTINUE_ENCODING;
     return TURBOQOA_ENCODER_ERROR_NONE;
 }
