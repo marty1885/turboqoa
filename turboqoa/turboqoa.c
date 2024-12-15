@@ -624,7 +624,12 @@ enum TurboQOAEncoderError turboqoa_encoder_encode_step(struct TurboQOAEncoder *s
             const size_t slice_samples = MIN(QOA_SAMPLES_PER_SLICE, encoding_samples - sample_idx_in_channel * self->num_channels - channel);
             for(int sfi = 0; sfi < 16; sfi++) {
                 size_t sample_begin = sample_idx_in_channel * self->num_channels + channel;
-                int32_t scalefactor = (sfi + prevsf[channel]) % 16;
+                // scale factor is heavily correlated with the previous scale factor so we start searching near the previous one
+                // -1 because it might also be useful to try first
+                int32_t scalefactor = (sfi + prevsf[channel]) % 16 - 1;
+                if(scalefactor < 0) {
+                    scalefactor += 16;
+                }
                 uint64_t slice = scalefactor;
                 struct TurboQOALMSState lms = self->lms_states[channel];
                 int64_t current_rank = 0;
