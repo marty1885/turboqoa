@@ -122,7 +122,16 @@ enum TurboQOAEncoderWants
 
 struct TurboQOAEncoder *turboqoa_encoder_create(int32_t sample_rate, uint8_t num_channels, uint32_t total_samples_per_channel, void (*write_cb)(void* user_data, const uint8_t* data, size_t size), void* user_data);
 void turboqoa_encoder_destroy(struct TurboQOAEncoder *encoder);
-enum TurboQOAEncoderError turboqoa_encoder_encode(struct TurboQOAEncoder *encoder, const int16_t* data, size_t size, size_t* consumed_input, enum TurboQOAEncoderWants* wants);
+enum TurboQOAEncoderError turboqoa_encoder_encode_step(struct TurboQOAEncoder *encoder,
+    const int16_t* data,
+    size_t size,
+    size_t* consumed_input,
+    enum TurboQOAEncoderWants* wants);
+enum TurboQOAEncoderError turboqoa_encoder_encode(struct TurboQOAEncoder *encoder,
+    const int16_t* data,
+    size_t size,
+    size_t* consumed_input,
+    enum TurboQOAEncoderWants* wants);
 int turboqoa_encoder_encode_done(struct TurboQOAEncoder *encoder);
 
 #ifdef __cplusplus

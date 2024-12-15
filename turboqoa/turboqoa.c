@@ -525,10 +525,12 @@ static const int qoa_dequant_tab[16][8] = {
 
 
 
-enum TurboQOAEncoderError turboqoa_encoder_encode(struct TurboQOAEncoder *self, const int16_t* data, size_t size, size_t* input_consumed, enum TurboQOAEncoderWants* wants)
+enum TurboQOAEncoderError turboqoa_encoder_encode_step(struct TurboQOAEncoder *self, const int16_t* data, size_t size, size_t* input_consumed, enum TurboQOAEncoderWants* wants)
 {
     const size_t samples_per_frame = QOA_SLICE_PER_CHANNEL_PER_FRAME * QOA_SAMPLES_PER_SLICE * self->num_channels;
-    uint8_t* ptr = turboqoa_work_buffer_push_or_passthrough(&self->work_buffer, samples_per_frame * 2, (const uint8_t*)data, size * 2, input_consumed);
+    const size_t remaiing_samples_per_channel = self->total_samples_per_channel == 0 ? (size_t)-1 : self->total_samples_per_channel - self->total_samples_written_per_channel;
+    const size_t encoding_samples = MIN(samples_per_frame, remaiing_samples_per_channel);
+    uint8_t* ptr = turboqoa_work_buffer_push_or_passthrough(&self->work_buffer, encoding_samples * 2, (const uint8_t*)data, size * 2, input_consumed);
     *input_consumed /= 2;
     if(ptr == NULL) {
         *wants = TURBOQOA_ENCODER_WANTS_MORE_DATA;
@@ -536,11 +538,13 @@ enum TurboQOAEncoderError turboqoa_encoder_encode(struct TurboQOAEncoder *self, 
     }
 
     // now ptr points to the first sample of the frame. Write frame header
+    const size_t encode_sample_per_channel = encoding_samples / self->num_channels;
+    const size_t encode_slices = encode_sample_per_channel / QOA_SAMPLES_PER_SLICE + (encode_sample_per_channel % QOA_SAMPLES_PER_SLICE != 0);
     uint8_t frame_header[8];
     frame_header[0] = self->num_channels;
     storeu24be(frame_header + 1, self->sample_rate);
-    storeu16be(frame_header + 4, samples_per_frame / self->num_channels);
-    storeu16be(frame_header + 6, 8 + 16 * self->num_channels + 8 * 256 * self->num_channels); // frame size (including header)
+    storeu16be(frame_header + 4, encoding_samples / self->num_channels);
+    storeu16be(frame_header + 6, 8 + 16 * self->num_channels + 8 * encode_slices * self->num_channels); // frame size (including header)
     turboqoa_encoder_write(self, frame_header, 8);
 
     // store LMS states
@@ -558,7 +562,7 @@ enum TurboQOAEncoderError turboqoa_encoder_encode(struct TurboQOAEncoder *self, 
 
     // Compute LMS states
     int16_t* input_samples = (int16_t*)ptr;
-    for(size_t sample_idx_in_channel = 0; sample_idx_in_channel < samples_per_frame / self->num_channels; sample_idx_in_channel+=QOA_SAMPLES_PER_SLICE) {
+    for(size_t sample_idx_in_channel = 0; sample_idx_in_channel < encoding_samples / self->num_channels; sample_idx_in_channel+=QOA_SAMPLES_PER_SLICE) {
         for(size_t channel = 0; channel < self->num_channels; channel++) {
             // search through all scale factors to find the best one
             int32_t best_sf = 0;
@@ -567,6 +571,7 @@ enum TurboQOAEncoderError turboqoa_encoder_encode(struct TurboQOAEncoder *self, 
             size_t best_rank = (size_t)-1;
 
             struct TurboQOALMSState best_lms;
+            const size_t encode_samples = MIN(QOA_SAMPLES_PER_SLICE, encoding_samples - sample_idx_in_channel * self->num_channels - channel);
             for(int sfi = 0; sfi < 16; sfi++) {
                 size_t sample_begin = sample_idx_in_channel * self->num_channels + channel;
                 int32_t scalefactor = (sfi + prevsf[channel]) % 16;
@@ -574,7 +579,7 @@ enum TurboQOAEncoderError turboqoa_encoder_encode(struct TurboQOAEncoder *self, 
                 struct TurboQOALMSState lms = self->lms_states[channel];
                 int64_t current_rank = 0;
                 uint64_t current_error = 0;
-                for(size_t sample_in_slice = 0; sample_in_slice < QOA_SAMPLES_PER_SLICE; sample_in_slice++) {
+                for(size_t sample_in_slice = 0; sample_in_slice < encode_samples; sample_in_slice++) {
                     size_t idx = sample_begin + sample_in_slice * self->num_channels;
                     int32_t sample = input_samples[idx];
                     int32_t prediction = 0;
@@ -631,6 +636,9 @@ enum TurboQOAEncoderError turboqoa_encoder_encode(struct TurboQOAEncoder *self, 
             self->lms_states[channel] = best_lms;
             prevsf[channel] = best_sf;
             uint8_t slice_buf[8];
+            if(encode_samples != QOA_SAMPLES_PER_SLICE) {
+                best_slice <<= (QOA_SAMPLES_PER_SLICE - encode_samples) * 3;
+            }
             storeu64be(slice_buf, best_slice);
             turboqoa_encoder_write(self, slice_buf, 8);
         }
@@ -639,6 +647,28 @@ enum TurboQOAEncoderError turboqoa_encoder_encode(struct TurboQOAEncoder *self, 
 
     self->total_samples_written_per_channel += samples_per_frame / self->num_channels;
     *wants = TURBOQOA_ENCODER_WANTS_CONTINUE_ENCODING;
+    return TURBOQOA_ENCODER_ERROR_NONE;
+}
+
+enum TurboQOAEncoderError turboqoa_encoder_encode(struct TurboQOAEncoder *self, const int16_t* data, size_t size, size_t* input_consumed, enum TurboQOAEncoderWants* wants)
+{
+    *input_consumed = 0;
+    *wants = TURBOQOA_ENCODER_WANTS_CONTINUE_ENCODING;
+    size_t accum_consumed = 0;
+    while(!turboqoa_encoder_encode_done(self)) {
+        size_t consumed = 0;
+        enum TurboQOAEncoderError e = turboqoa_encoder_encode_step(self, data + accum_consumed, size - accum_consumed, &consumed, wants);
+        accum_consumed += consumed;
+        if(e != TURBOQOA_ENCODER_ERROR_NONE) {
+            *input_consumed = accum_consumed;
+            return e;
+        }
+        if(*wants != TURBOQOA_ENCODER_WANTS_CONTINUE_ENCODING) {
+            *input_consumed = accum_consumed;
+            return TURBOQOA_ENCODER_ERROR_NONE;
+        }
+    }
+    *input_consumed = accum_consumed;
     return TURBOQOA_ENCODER_ERROR_NONE;
 }
 
