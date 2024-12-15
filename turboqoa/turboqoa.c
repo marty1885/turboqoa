@@ -403,6 +403,61 @@ enum TurboQOADecoderError turboqoa_decoder_decode(struct TurboQOADecoder *self, 
     return TURBOQOA_DECODER_ERROR_NONE;
 }
 
+int16_t* turboqoa_decode_buffer(const uint8_t* data, size_t size, uint8_t* num_channels, uint32_t* sample_rate)
+{
+    struct TurboQOADecoder *decoder = turboqoa_decoder_create();
+    size_t samples_written;
+    enum TruboQOADecoderWants wants;
+
+
+    size_t total_consumed = 0;
+    size_t total_output_written = 0;
+    size_t output_buffer_size = size * 16 / 3; // QOA is ~3.2bps vs 16bps for PCM
+    int16_t* output = malloc(output_buffer_size * sizeof(int16_t));
+    while(!turboqoa_decoder_decode_done(decoder)) {
+        size_t consumed = 0;
+        size_t output_written = 0;
+        enum TurboQOADecoderError error = turboqoa_decoder_decode(
+            decoder,
+            data + total_consumed,
+            size - total_consumed,
+            &consumed,
+            output + total_output_written,
+            output_buffer_size - total_output_written,
+            &samples_written,
+            &wants);
+        if(error != TURBOQOA_DECODER_ERROR_NONE) {
+            free(output);
+            turboqoa_decoder_destroy(decoder);
+            return NULL;
+        }
+        if(wants == TURBOQOA_DECODER_WANTS_MORE_DATA) {
+            free(output);
+            turboqoa_decoder_destroy(decoder);
+            return NULL;
+        }
+
+        // Resize output buffer if needed
+        if(decoder->total_samples_per_channel != 0 && decoder->expected_channel_count != (size_t)-1
+            && output_buffer_size != decoder->total_samples_per_channel * decoder->expected_channel_count) {
+            size_t n = decoder->total_samples_per_channel * decoder->expected_channel_count;
+            output_buffer_size = n;
+            output = realloc(output, output_buffer_size * sizeof(int16_t));
+        }
+        if(wants == TURBOQOA_DECODER_WANTS_MORE_OUTPUT_BUFFER) {
+            output_buffer_size += output_buffer_size / 2;
+            output = realloc(output, output_buffer_size * sizeof(int16_t));
+        }
+
+        total_consumed += consumed;
+        total_output_written += samples_written;
+        assert(consumed <= size);
+    }
+
+    turboqoa_decoder_destroy(decoder);
+    return NULL;
+}
+
 int turboqoa_decoder_decode_done(struct TurboQOADecoder *decoder)
 {
     return decoder->total_decoded_samples_per_channel >= decoder->total_samples_per_channel
@@ -670,4 +725,44 @@ enum TurboQOAEncoderError turboqoa_encoder_encode(struct TurboQOAEncoder *self, 
 int turboqoa_encoder_encode_done(struct TurboQOAEncoder *encoder)
 {
     return encoder->total_samples_written_per_channel >= encoder->total_samples_per_channel || encoder->total_samples_per_channel == 0;
+}
+
+struct EncoderBufferWriter {
+    uint8_t* buffer;
+    size_t size;
+    size_t offset;
+};
+
+void write_to_buffer(void* user_data, const uint8_t* data, size_t size)
+{
+    struct EncoderBufferWriter *writer = (struct EncoderBufferWriter*)user_data;
+    if(writer->offset + size > writer->size) {
+        writer->size = writer->offset + size;
+        writer->buffer = realloc(writer->buffer, writer->size);
+    }
+
+    memcpy(writer->buffer + writer->offset, data, size);
+}
+
+uint8_t* turboqoa_encode_buffer(const int16_t* data, size_t size, uint8_t num_channels, uint32_t sample_rate, size_t* out_size)
+{
+    assert(size % num_channels == 0);
+    struct EncoderBufferWriter writer;
+    writer.buffer = malloc(1024);
+    writer.size = 1024;
+    writer.offset = 0;
+    struct TurboQOAEncoder *encoder = turboqoa_encoder_create(sample_rate, num_channels, size / num_channels, write_to_buffer, &writer);
+
+    size_t total_consumed = 0;
+    while(!turboqoa_encoder_encode_done(encoder)) {
+        size_t consumed = 0;
+        enum TurboQOAEncoderError error = turboqoa_encoder_encode(encoder, data + total_consumed, size - total_consumed, &consumed, NULL);
+        if(error != TURBOQOA_ENCODER_ERROR_NONE) {
+            free(writer.buffer);
+            turboqoa_encoder_destroy(encoder);
+            return NULL;
+        }
+        total_consumed += consumed;
+    }
+    return writer.buffer;
 }

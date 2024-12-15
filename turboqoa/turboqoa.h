@@ -91,6 +91,9 @@ enum TurboQOADecoderError turboqoa_decoder_decode(struct TurboQOADecoder *decode
     enum TruboQOADecoderWants* wants);
 int turboqoa_decoder_decode_done(struct TurboQOADecoder *decoder);
 
+// High level API. Need to free() the returned buffer
+int16_t* turboqoa_decode_buffer(const uint8_t* data, size_t size, uint8_t* num_channels, uint32_t* sample_rate);
+
 struct TurboQOAEncoder
 {
     void (*write)(void* user_data, const uint8_t* data, size_t size);
@@ -133,6 +136,9 @@ enum TurboQOAEncoderError turboqoa_encoder_encode(struct TurboQOAEncoder *encode
     size_t* consumed_input,
     enum TurboQOAEncoderWants* wants);
 int turboqoa_encoder_encode_done(struct TurboQOAEncoder *encoder);
+
+// High level API. Need to free() the returned buffer
+uint8_t* turboqoa_encode_buffer(const int16_t* data, size_t size, uint8_t num_channels, uint32_t sample_rate, size_t* out_size);
 
 #ifdef __cplusplus
 }
