@@ -462,7 +462,7 @@ int16_t* turboqoa_decode_buffer(const uint8_t* data, size_t size, uint8_t* num_c
 int turboqoa_decoder_decode_done(struct TurboQOADecoder *decoder)
 {
     return decoder->total_decoded_samples_per_channel >= decoder->total_samples_per_channel
-        || decoder->total_samples_per_channel == 0; // streaming mode
+        && decoder->total_samples_per_channel != 0; // streaming mode, never done
 }
 
 static void storeu16be(uint8_t *data, uint16_t value)
