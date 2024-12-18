@@ -258,9 +258,10 @@ enum TurboQOADecoderError turboqoa_decoder_decode_step(struct TurboQOADecoder *s
             return TURBOQOA_DECODER_ERROR_NONE;
         }
         else {
-            // TODO: Optimize this free + malloc away, it's not necessary in most cases
-            free(self->lms_states);
-            self->lms_states = malloc(sizeof(struct TurboQOALMSState) * self->current_frame_header.num_channels);
+            // num_channels guaranteed to be the same always as it is checked in the frame header
+            if(self->lms_states == NULL) {
+                self->lms_states = malloc(sizeof(struct TurboQOALMSState) * self->current_frame_header.num_channels);
+            }
 
             for(int i = 0; i < self->current_frame_header.num_channels; i++) {
                 struct TurboQOALMSState *state = &self->lms_states[i];
@@ -342,7 +343,7 @@ enum TurboQOADecoderError turboqoa_decoder_decode_step(struct TurboQOADecoder *s
                     }
                     state->history[3] = s;
 
-                    output[(i * 20 + k) * self->current_frame_header.num_channels + j] = s;
+                    output[(i * QOA_SAMPLES_PER_SLICE + k) * self->current_frame_header.num_channels + j] = s;
                 }
                 self->slices_decoded++;
             }
