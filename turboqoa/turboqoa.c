@@ -730,7 +730,7 @@ enum TurboQOAEncoderError turboqoa_encoder_encode(struct TurboQOAEncoder *self, 
 
 int turboqoa_encoder_encode_done(struct TurboQOAEncoder *encoder)
 {
-    return encoder->total_samples_written_per_channel >= encoder->total_samples_per_channel || encoder->total_samples_per_channel == 0;
+    return encoder->total_samples_written_per_channel >= encoder->total_samples_per_channel && encoder->total_samples_per_channel != 0;
 }
 
 struct EncoderBufferWriter {
