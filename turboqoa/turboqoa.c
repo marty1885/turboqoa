@@ -101,6 +101,7 @@ struct TurboQOADecoder *turboqoa_decoder_create()
     decoder->total_decoded_samples_per_channel = 0;
     decoder->expected_channel_count = (size_t)-1;
     decoder->expected_sample_rate = (size_t)-1;
+    decoder->lms_states = NULL;
     turboqoa_work_buffer_init(&decoder->work_buffer);
     return decoder;
 }
